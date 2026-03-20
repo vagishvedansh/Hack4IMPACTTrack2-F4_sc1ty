@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  sentinelcore-backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - ./reports:/app/reports
+    environment:
+      - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY}
+      - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY}
+      - LEAKLOOKUP_API_KEY=${LEAKLOOKUP_API_KEY}
+      - DATABASE_URL=sqlite:///./sentinelcore.db
+      - DEBUG=true
+    depends_on:
+      - recon-agent
+
+  recon-agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: sentinelcore-recon-agent
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./reports:/opt/recon/reports
+      - ./wordlists:/opt/recon/wordlists
+    stdin_open: true
+    tty: true
+    command: shell
+
+networks:
+  default:
+    name: sentinelcore-network

@@ -1,0 +1,36 @@
+# Secrets
+.env
+.env.local
+*.env
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Databases
+*.db
+*.sqlite
+sentinelcore.db
+
+# Logs
+*.log
+server.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Reports (generated at runtime)
+reports/
+
+# Node modules (if frontend uses npm)
+node_modules/

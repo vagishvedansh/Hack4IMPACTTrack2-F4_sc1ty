@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentinelCore | Autonomous Cyber Defense</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-deep: #020306;
+            --bg-panel: rgba(8, 12, 24, 0.6);
+            --bg-panel-hover: rgba(12, 20, 36, 0.75);
+            --primary: #00f3ff;
+            --primary-glow: rgba(0, 243, 255, 0.5);
+            --secondary: #00ff9d;
+            --secondary-glow: rgba(0, 255, 157, 0.5);
+            --danger: #ff0055;
+            --danger-glow: rgba(255, 0, 85, 0.5);
+            --warning: #ffcc00;
+            --text-main: #e2f1f8;
+            --text-muted: #5e7896;
+            --border: rgba(0, 243, 255, 0.2);
+            --border-highlight: rgba(0, 243, 255, 0.6);
+            --font-ui: 'Rajdhani', sans-serif;
+            --font-mono: 'Fira Code', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-deep);
+            color: var(--text-main);
+            font-family: var(--font-ui);
+            height: 100vh;
+            display: flex; flex-direction: column;
+            overflow: hidden; perspective: 1500px;
+        }
+
+        /* --- Global Scrollbar --- */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.5); border-left: 1px solid var(--border); }
+        ::-webkit-scrollbar-thumb { background: var(--primary); box-shadow: 0 0 10px var(--primary-glow); }
+
+        /* --- CRT Distortions & Global Layers --- */
+        .crt-vignette {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 9999;
+            box-shadow: inset 0 0 150px rgba(0,0,0,0.95);
+            background: radial-gradient(circle at center, transparent 60%, rgba(0,0,0,0.5) 100%);
+        }
+        
+        .scanlines {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 3px, 3px 100%;
+            z-index: 9998; pointer-events: none; opacity: 0.3;
+        }
+
+        #bgCanvas {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%; z-index: -2;
+            pointer-events: none;
+        }
+
+        .hex-grid {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -3; opacity: 0.05;
+            background-image: url("data:image/svg+xml,%3Csvg width='40' height='69.282' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M40 17.32l-20 11.547L0 17.32V0h40v17.32zm0 34.64l-20 11.548-20-11.548V34.64h40v17.32z' fill='none' stroke='%2300f3ff' stroke-width='1'/%3E%3C/svg%3E");
+            animation: hexPulse 6s infinite alternate ease-in-out;
+        }
+        @keyframes hexPulse { 0% { opacity: 0.02; transform: scale(1); } 100% { opacity: 0.08; transform: scale(1.02); } }
+
+        /* --- Boot Screen --- */
+        #bootScreen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #000; z-index: 10000;
+            display: flex; flex-direction: column; justify-content: flex-end;
+            padding: 40px; font-family: var(--font-mono); color: var(--secondary);
+            font-size: 1rem; text-shadow: 0 0 5px var(--secondary-glow);
+            transition: opacity 1s ease-out; cursor: none;
+        }
+        #bootScreen.hidden { opacity: 0; pointer-events: none; }
+        .boot-log { margin-bottom: 5px; text-shadow: 0 0 10px var(--secondary); }
+        #bootCursor {
+            display: inline-block; width: 10px; height: 18px;
+            background: var(--secondary); animation: blink 1s step-end infinite;
+            vertical-align: text-bottom; margin-left: 5px;
+        }
+
+        /* --- Audio Auth Overlay --- */
+        #audioOverlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 10001; display: flex;
+            align-items: center; justify-content: center;
+            flex-direction: column; gap: 20px;
+        }
+        .start-btn {
+            background: transparent; color: var(--secondary); border: 2px solid var(--secondary);
+            padding: 20px 40px; font-family: var(--font-mono); font-size: 1.5rem;
+            cursor: pointer; text-transform: uppercase;
+            box-shadow: 0 0 20px rgba(0,255,157,0.2), inset 0 0 20px rgba(0,255,157,0.2);
+            transition: all 0.3s;
+        }
+        .start-btn:hover { background: var(--secondary); color: #000; box-shadow: 0 0 40px var(--secondary); }
+
+        /* --- Container Layout --- */
+        .container {
+            display: grid; grid-template-columns: 260px 1fr; grid-template-rows: 70px 1fr;
+            height: 100%; opacity: 0; transition: opacity 1s ease-in;
+            border-radius: 10px; overflow: hidden; transform: scale(0.99); /* CRT slight scale down */
+            box-shadow: 0 0 50px rgba(0, 243, 255, 0.1);
+        }
+        .container.visible { opacity: 1; }
+
+        /* --- Header --- */
+        header {
+            grid-column: 1 / -1; background: rgba(5, 8, 15, 0.85);
+            backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 30px; z-index: 10; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .logo { font-weight: 700; font-size: 1.8rem; letter-spacing: 3px; color: var(--primary); text-transform: uppercase; text-shadow: 0 0 10px var(--primary-glow); display: flex; align-items: center; gap: 10px; }
+        .logo svg { width: 30px; height: 30px; fill: var(--primary); filter: drop-shadow(0 0 5px var(--primary)); }
+        .logo span { color: var(--text-main); text-shadow: none; }
+        .status-container { display: flex; align-items: center; gap: 20px; }
+        .status-indicator { display: flex; align-items: center; gap: 8px; font-size: 1rem; text-transform: uppercase; letter-spacing: 1px; color: var(--secondary); font-weight: 600; padding: 5px 15px; background: rgba(0, 255, 157, 0.1); border: 1px solid rgba(0, 255, 157, 0.3); border-radius: 4px; }
+        .pulse { width: 10px; height: 10px; background-color: var(--secondary); border-radius: 50%; box-shadow: 0 0 15px var(--secondary); animation: pulse 1.5s infinite alternate; }
+
+        /* --- Sidebar Navigation --- */
+        aside {
+            background: rgba(5, 8, 15, 0.85); backdrop-filter: blur(15px);
+            border-right: 1px solid var(--border); padding: 30px 20px;
+            display: flex; flex-direction: column; gap: 15px;
+        }
+
+        .nav-item {
+            padding: 15px 20px; border-radius: 4px; cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            color: var(--text-muted); font-size: 1.1rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 1px; position: relative;
+            overflow: hidden; border: 1px solid transparent; display: flex; align-items: center; gap: 12px;
+        }
+        .nav-item::before { content: ''; position: absolute; left: 0; top: 0; height: 100%; width: 3px; background: var(--primary); transform: scaleY(0); transition: transform 0.3s ease; }
+        .nav-item:hover { color: var(--text-main); background: rgba(0, 243, 255, 0.05); border: 1px solid var(--border); box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.05); }
+        .nav-item.active {
+            color: var(--primary); background: linear-gradient(90deg, rgba(0, 243, 255, 0.15) 0%, transparent 100%);
+            border: 1px solid var(--border-highlight); text-shadow: 0 0 10px var(--primary-glow);
+        }
+        .nav-item.active::before { transform: scaleY(1); box-shadow: 0 0 10px var(--primary); }
+
+        /* --- Main Content --- */
+        main {
+            display: grid; grid-template-rows: 1fr auto; gap: 30px;
+            padding: 30px; overflow-y: auto; position: relative;
+        }
+
+        .dashboard-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 30px; min-height: 340px; perspective: 1000px; }
+
+        /* --- 3D Holographic Card Parallax --- */
+        .card {
+            background: var(--bg-panel); backdrop-filter: blur(15px);
+            border: 1px solid var(--border); border-radius: 4px;
+            padding: 25px; position: relative; overflow: hidden;
+            transition: transform 0.1s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+            display: flex; flex-direction: column;
+            transform-style: preserve-3d;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+        .card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, var(--primary), transparent); opacity: 0.5; }
+        .card:hover { border-color: var(--border-highlight); box-shadow: 0 20px 40px rgba(0, 243, 255, 0.15); }
+        .card > * { transform: translateZ(20px); } /* Push content out from card bg */
+
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; font-size: 1.3rem; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: var(--text-main); border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .card-header span:last-child { font-size: 0.85rem; font-family: var(--font-mono); letter-spacing: 0; }
+
+        /* --- Threat Detected State --- */
+        .glitch-active { border-color: var(--danger) !important; box-shadow: 0 0 15px var(--danger-glow), inset 0 0 20px rgba(255, 0, 85, 0.2) !important; transition: all 0.5s ease; }
+        .glitch-active * { color: var(--danger) !important; text-shadow: 0 0 8px var(--danger-glow) !important; }
+
+        /* --- Interactive Globe --- */
+        .globe-container {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) translateZ(40px);
+            width: 140px; height: 140px;
+            border-radius: 50%; border: 1px solid rgba(0, 243, 255, 0.4);
+            box-shadow: 0 0 30px var(--primary-glow), inset 0 0 30px rgba(0, 243, 255, 0.2);
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden; background: radial-gradient(circle, rgba(0,0,0,0) 40%, rgba(0, 243, 255, 0.1) 100%);
+        }
+        .globe-wireframe {
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
+            background: 
+                repeating-linear-gradient(90deg, transparent 0, transparent 15px, rgba(0, 243, 255, 0.2) 16px),
+                repeating-linear-gradient(0deg, transparent 0, transparent 15px, rgba(0, 243, 255, 0.2) 16px);
+            animation: moveGrid 5s linear infinite;
+            border-radius: 50%; clip-path: circle(50% at 50% 50%);
+        }
+        .globe-arc {
+            position: absolute; border: 2px solid transparent; border-top-color: var(--danger);
+            border-radius: 50%; width: 80%; height: 80%; top: 10%; left: 10%;
+            animation: spinArc 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+
+        @keyframes moveGrid { 100% { background-position: 16px 16px; } }
+        @keyframes spinArc { 0% { transform: rotate(0deg) scale(0.8); opacity: 0; } 50% { opacity: 1; border-top-color: var(--danger); } 100% { transform: rotate(360deg) scale(1.2); opacity: 0; } }
+
+        /* Heart rate line */
+        .chart-line { width: 100%; height: 50px; background: url('data:image/svg+xml;utf8,<svg viewBox="0 0 200 50" xmlns="http://www.w3.org/2000/svg"><path d="M0 25 L40 25 L50 10 L60 40 L70 25 L200 25" fill="none" stroke="%2300f3ff" stroke-width="2" vector-effect="non-scaling-stroke" filter="url(%23glow)"/></svg>') repeat-x; background-size: 100px 100%; animation: scrollLine 2s linear infinite; }
+        @keyframes scrollLine { 100% { background-position: -100px 0; } }
+
+        /* --- Forms & Inputs --- */
+        .input-group { display: flex; gap: 15px; margin-bottom: 20px; }
+        input[type="text"] { flex: 1; background: rgba(0, 0, 0, 0.6); border: 1px solid var(--border); padding: 12px 15px; color: var(--primary); font-family: var(--font-mono); font-size: 1rem; border-radius: 2px; outline: none; transition: all 0.3s; box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8); }
+        input[type="text"]::placeholder { color: var(--text-muted); font-family: var(--font-ui); letter-spacing: 1px; }
+        input[type="text"]:focus { border-color: var(--primary); box-shadow: 0 0 15px var(--primary-glow), inset 0 0 10px rgba(0, 0, 0, 0.8); }
+
+        button { background: transparent; color: var(--primary); border: 1px solid var(--primary); padding: 12px 25px; font-family: var(--font-ui); font-size: 1.1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; cursor: pointer; transition: all 0.3s; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        button::before { content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: var(--primary); transition: left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); z-index: -1; }
+        button:hover { color: #000; box-shadow: 0 0 20px var(--primary-glow); }
+        button:hover::before { left: 0; }
+        button.btn-danger { color: var(--danger); border-color: var(--danger); }
+        button.btn-danger::before { background: var(--danger); }
+        button.btn-danger:hover { color: #fff; box-shadow: 0 0 20px var(--danger-glow); }
+
+        /* --- Terminal / Console --- */
+        .terminal-window {
+            background: rgba(2, 4, 8, 0.9); border: 1px solid var(--border); border-radius: 4px;
+            display: flex; flex-direction: column; font-family: var(--font-mono);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9); position: relative;
+        }
+        .terminal-window::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; box-shadow: inset 0 0 40px rgba(0, 243, 255, 0.05); }
+
+        .terminal-header { background: rgba(10, 15, 25, 1); padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+        .ts-btn { width: 12px; height: 12px; border-radius: 50%; background: #555; transition: 0.3s; }
+        .terminal-header:hover .ts-btn.red { background: #ff5f56; box-shadow: 0 0 5px #ff5f56; }
+        .terminal-header:hover .ts-btn.yellow { background: #ffbd2e; box-shadow: 0 0 5px #ffbd2e;}
+        .terminal-header:hover .ts-btn.green { background: #27c93f; box-shadow: 0 0 5px #27c93f;}
+
+        .terminal-title { margin-left: 10px; color: var(--text-muted); font-size: 0.85rem; letter-spacing: 1px; text-transform: uppercase; }
+
+        .terminal-body { padding: 20px; flex: 1; overflow-y: auto; color: var(--text-main); font-size: 0.95rem; line-height: 1.6; }
+        .log-entry { margin-bottom: 8px; word-wrap: break-word; }
+        .log-timestamp { color: #4a5d73; margin-right: 10px; }
+        .log-info { color: var(--primary); text-shadow: 0 0 5px var(--primary-glow); }
+        .log-warn { color: var(--warning); text-shadow: 0 0 5px rgba(255, 204, 0, 0.4); }
+        .log-error { color: var(--danger); text-shadow: 0 0 5px var(--danger-glow); }
+        .log-success { color: var(--secondary); text-shadow: 0 0 5px var(--secondary-glow); }
+        .cursor { display: inline-block; width: 8px; height: 15px; background: var(--primary); animation: blink 1s step-end infinite; vertical-align: text-bottom; box-shadow: 0 0 5px var(--primary); margin-left: 5px; }
+
+        @keyframes blink { 50% { opacity: 0; } }
+        @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        .module-section { display: none; height: 100%; animation: fadeSlideIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+        .module-section.active { display: block; }
+
+        .border-primary { border-color: var(--border); box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.05); border-top: 3px solid var(--primary); }
+        .border-secondary { border-color: rgba(0, 255, 157, 0.3); box-shadow: inset 0 0 20px rgba(0, 255, 157, 0.05); border-top: 3px solid var(--secondary); }
+        .border-danger { border-color: rgba(255, 0, 85, 0.3); box-shadow: inset 0 0 20px rgba(255, 0, 85, 0.05); border-top: 3px solid var(--danger); }
+
+        .icon { display: inline-block; width: 20px; height: 20px; }
+        .stat-display { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 20px; }
+        .stat-value { font-size: 3.5rem; font-weight: 700; line-height: 1; text-shadow: 0 0 20px currentColor; font-family: var(--font-mono); }
+        .stat-label { color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; font-size: 0.9rem; margin-top: 5px; }
+        
+        .risk-meter { height: 8px; width: 100%; background: rgba(255, 255, 255, 0.1); border-radius: 4px; margin-top: 15px; overflow: hidden; box-shadow: inset 0 0 5px #000; }
+        .risk-fill { height: 100%; width: 0%; transition: width 1.5s cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 0 10px currentColor; }
+        .risk-low { background: var(--secondary); color: var(--secondary); }
+        .risk-med { background: var(--warning); color: var(--warning); }
+        .risk-high { background: var(--danger); color: var(--danger); }
+        
+        .scramble-text { font-family: var(--font-mono); }
+
+        /* --- Phase 4: Aurora Card Shimmer --- */
+        .card::after {
+            content: '';
+            position: absolute;
+            top: -60%; left: -60%;
+            width: 60%; height: 200%;
+            background: linear-gradient(90deg, transparent, rgba(0, 243, 255, 0.06), transparent);
+            transform: skewX(-20deg);
+            animation: cardShimmer 6s ease-in-out infinite;
+            pointer-events: none;
+        }
+        @keyframes cardShimmer {
+            0% { left: -60%; opacity: 0; }
+            30% { opacity: 1; }
+            60% { left: 160%; opacity: 0; }
+            100% { left: 160%; opacity: 0; }
+        }
+
+        /* --- Phase 4: Matrix Rain Canvas --- */
+        #matrixCanvas {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: -1; pointer-events: none;
+            opacity: 0.07;
+        }
+
+        /* --- Phase 4: Live Clock --- */
+        .live-clock {
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            color: var(--primary);
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px var(--primary-glow);
+            border: 1px solid var(--border);
+            padding: 5px 15px;
+            background: rgba(0,0,0,0.4);
+        }
+        .threat-ticker {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--danger);
+            text-shadow: 0 0 8px var(--danger-glow);
+            letter-spacing: 1px;
+        }
+
+        /* --- Phase 4: Nav Badges --- */
+        .nav-badge {
+            margin-left: auto;
+            background: var(--danger);
+            color: #fff;
+            font-size: 0.7rem;
+            font-family: var(--font-mono);
+            padding: 2px 7px;
+            border-radius: 10px;
+            box-shadow: 0 0 8px var(--danger-glow);
+            animation: badgePulse 2s infinite alternate;
+        }
+        @keyframes badgePulse {
+            from { box-shadow: 0 0 5px var(--danger-glow); }
+            to { box-shadow: 0 0 15px var(--danger); }
+        }
+        .nav-badge.safe {
+            background: var(--secondary);
+            box-shadow: 0 0 8px var(--secondary-glow);
+            animation: badgePulseSafe 2s infinite alternate;
+        }
+        @keyframes badgePulseSafe {
+            from { box-shadow: 0 0 5px var(--secondary-glow); }
+            to { box-shadow: 0 0 15px var(--secondary); }
+        }
+
+        /* --- Phase 4: SVG Arc Ring --- */
+        .arc-ring-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 160px;
+        }
+        .arc-ring-wrap svg { position: absolute; }
+        #arcCircle {
+            transition: stroke-dashoffset 1.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+            transform-origin: 75px 75px;
+            transform: rotate(-90deg);
+        }
+
+        /* --- Phase 4: Leaked Feed Widget --- */
+        .leak-feed {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,0,85,0.3);
+            border-radius: 4px;
+            padding: 15px;
+            border-left: 3px solid var(--danger);
+            margin-top: 20px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .leak-entry {
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            opacity: 0;
+            animation: fadeFeedIn 0.5s forwards;
+        }
+        @keyframes fadeFeedIn { to { opacity: 1; } }
+
+        /* Reactive Input Glow */
+        input[type="text"]:focus + button, input[type="text"]:focus ~ button {
+            border-color: var(--primary);
+        }
+
+        /* --- Phase 5: Custom Neon Cursor --- */
+        body.sys-active { cursor: none; }
+        #cursorDot {
+            position: fixed; pointer-events: none; z-index: 99999;
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--primary);
+            box-shadow: 0 0 15px var(--primary), 0 0 25px var(--primary-glow);
+            transform: translate(-50%, -50%);
+            transition: transform 0.1s ease-out, width 0.2s, height 0.2s;
+            display: none;
+            animation: cursorPulse 1.5s infinite alternate;
+        }
+        @keyframes cursorPulse {
+            from { filter: drop-shadow(0 0 2px #fff); transform: translate(-50%, -50%) scale(1); }
+            to { filter: drop-shadow(0 0 8px var(--primary)); transform: translate(-50%, -50%) scale(1.3); background: var(--primary); box-shadow: 0 0 25px var(--primary), 0 0 40px var(--primary-glow); }
+        }
+        body.sys-active #cursorDot { display: block; }
+        body.sys-active a, body.sys-active button, body.sys-active .nav-item, body.sys-active input { cursor: none !important; }
+
+        /* --- Phase 5: Logo Flicker --- */
+        .logo-flicker {
+            animation: neonFlicker 8s infinite;
+        }
+        @keyframes neonFlicker {
+            0%,19%,21%,23%,25%,54%,56%,100% {
+                text-shadow: 0 0 10px var(--primary-glow), 0 0 20px var(--primary-glow), 0 0 40px var(--primary);
+                opacity: 1;
+            }
+            20%,24%,55% { text-shadow: none; opacity: 0.8; }
+        }
+
+        /* --- Phase 5: Rotating Gradient Card Border --- */
+        .card-rainbow {
+            padding: 2px;
+            background: conic-gradient(from var(--angle), var(--primary), var(--secondary), var(--danger), var(--warning), var(--primary));
+            animation: rotateBorder 4s linear infinite;
+        }
+        @property --angle {
+            syntax: '<angle>'; initial-value: 0deg; inherits: false;
+        }
+        @keyframes rotateBorder { to { --angle: 360deg; } }
+        .card-rainbow > .card-inner {
+            background: var(--bg-panel);
+            backdrop-filter: blur(15px);
+            border-radius: 3px;
+            padding: 25px;
+            height: 100%;
+            display: flex; flex-direction: column;
+            position: relative; overflow: hidden;
+        }
+
+        /* --- Phase 5: Sidebar System Meters --- */
+        .sys-meters {
+            margin-top: auto;
+            border-top: 1px solid var(--border);
+            padding-top: 15px;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .meter-row {
+            display: flex; align-items: center; gap: 10px;
+            font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);
+        }
+        .meter-label { width: 32px; color: var(--primary); }
+        .meter-bar { flex: 1; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+        .meter-fill {
+            height: 100%; border-radius: 2px;
+            background: var(--primary);
+            box-shadow: 0 0 6px var(--primary-glow);
+            transition: width 1s ease;
+        }
+        .meter-fill.warn { background: var(--warning); box-shadow: 0 0 6px rgba(255,204,0,0.5); }
+        .meter-fill.danger { background: var(--danger); box-shadow: 0 0 6px var(--danger-glow); }
+        .meter-val { width: 32px; text-align: right; color: var(--text-muted); }
+
+        /* --- Phase 5: Click Ripple --- */
+        .ripple {
+            position: fixed; pointer-events: none; z-index: 9997;
+            border-radius: 50%;
+            width: 0; height: 0;
+            border: 2px solid var(--primary);
+            box-shadow: 0 0 12px var(--primary-glow);
+            transform: translate(-50%, -50%);
+            animation: rippleOut 0.6s ease-out forwards;
+        }
+        @keyframes rippleOut {
+            to { width: 80px; height: 80px; opacity: 0; }
+        }
+
+        /* --- Phase 5: Cyber Quote Bar --- */
+        .quote-bar {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--primary);
+            padding: 12px 20px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            border-radius: 4px;
+            margin-bottom: 20px;
+            min-height: 44px;
+        }
+        .quote-bar span { color: var(--primary); }
+    </style>
+</head>
+
+<body>
+
+    <div class="hex-grid"></div>
+    <canvas id="matrixCanvas"></canvas>
+    <canvas id="bgCanvas"></canvas>
+    <!-- Phase 5: Neon cursor elements -->
+    <div id="cursorDot"></div>
+    
+    <div id="audioOverlay">
+        <h1 style="color:var(--danger); text-shadow: 0 0 20px var(--danger); font-size:3rem; letter-spacing:10px; margin-bottom:20px;">RESTRICTED SYSTEM</h1>
+        <button class="start-btn" onclick="initSystem()">INITIALIZE KERNEL SEQUENCE</button>
+    </div>
+
+    <div id="bootScreen">
+        <div id="bootLogsContainer"></div>
+        <div id="bootCursor"></div>
+    </div>
+
+    <div class="container" id="mainApp">
+        <!-- Header -->
+        <header>
+            <div class="logo logo-flicker">
+                <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                SENTINEL<span>CORE</span>
+            </div>
+            <div class="status-container" style="gap: 15px; display:flex; align-items:center;">
+                <div class="threat-ticker" id="threatTicker"></div>
+                <div class="live-clock" id="liveClock">--:--:--</div>
+                <div class="status-indicator">
+                    <div class="pulse"></div>
+                    SYSTEM OPERATIONAL
+                </div>
+            </div>
+        </header>
+
+        <!-- Sidebar -->
+        <aside>
+            <!-- Sidebar version tag -->
+            <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-muted);padding:0 5px 15px 5px;border-bottom:1px solid var(--border);margin-bottom:5px;letter-spacing:1px;">v4.0 // ULTRON ENGINE</div>
+            <div class="nav-item active" onclick="switchTab('dashboard')">
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg> <span class="nav-text" data-original="Dashboard">Dashboard</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('malware')">
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 13v4h-2v-4H8l4-4 4 4h-3zm1-9V3.5L18.5 9H14z"/></svg> <span class="nav-text" data-original="Malware Scan">Malware Scan</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('osint')">
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg> <span class="nav-text" data-original="Recon &amp; OSINT">Recon &amp; OSINT</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('darkweb')">
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg> <span class="nav-text" data-original="Dark Web Scrub">Dark Web Scrub</span>
+            </div>
+            <!-- Phase 5: System Resource Meters -->
+            <div class="sys-meters">
+                <div class="meter-row">
+                    <span class="meter-label">CPU</span>
+                    <div class="meter-bar"><div class="meter-fill warn" id="mCPU" style="width:67%"></div></div>
+                    <span class="meter-val" id="mCPUVal">67%</span>
+                </div>
+                <div class="meter-row">
+                    <span class="meter-label">RAM</span>
+                    <div class="meter-bar"><div class="meter-fill" id="mRAM" style="width:45%"></div></div>
+                    <span class="meter-val" id="mRAMVal">45%</span>
+                </div>
+                <div class="meter-row">
+                    <span class="meter-label">NET</span>
+                    <div class="meter-bar"><div class="meter-fill danger" id="mNET" style="width:88%"></div></div>
+                    <span class="meter-val" id="mNETVal">88%</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main>
+            <!-- Default Dashboard View -->
+            <div id="dashboard" class="module-section active">
+                <!-- Phase 5: Cyber Quote Bar -->
+                <div class="quote-bar"><span>//</span> <span id="quoteText">"Security is a process, not a product." — Bruce Schneier</span></div>
+                <div class="dashboard-grid">
+                    <div class="card border-primary card-3d">
+                        <div class="card-header">
+                            <span class="scramble-text">System Health</span>
+                            <span>NODE_ALPHA_01</span>
+                        </div>
+                        <div class="chart-line"></div>
+                        <div class="stat-display">
+                            <div>
+                                <div class="stat-value scramble-text" id="statUptime" style="color: var(--primary);">99.9%</div>
+                                <div class="stat-label">Core Uptime</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="stat-value scramble-text" id="statStatus" style="color: var(--secondary); font-size: 2.5rem;">ONLINE</div>
+                                <div class="stat-label">Engine Status</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card border-secondary card-3d" style="position: relative; overflow: hidden;">
+                        <div class="card-header">
+                            <span class="scramble-text">Threats Neutralized</span>
+                            <span>LAST_24_HRS</span>
+                        </div>
+                        <div class="globe-container">
+                            <div class="globe-wireframe"></div>
+                            <div class="globe-arc" style="animation-duration: 2s; top:5%; left:5%; width: 90%; height:90%;"></div>
+                            <div class="globe-arc" style="animation-duration: 1.5s; top:15%; left:15%; width: 70%; height:70%; transform: rotateX(45deg);"></div>
+                            <div class="globe-arc" style="animation-duration: 3s; top:25%; left:25%; width: 50%; height:50%; transform: rotateY(45deg);"></div>
+                        </div>
+                        <div class="stat-display" style="position: relative; z-index: 2; pointer-events:none; padding-top:60px;">
+                            <div>
+                                <div class="stat-value scramble-text" id="statScans" style="color: var(--secondary);">0</div>
+                                <div class="stat-label">Files Scanned</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="stat-value scramble-text" id="statBreaches" style="color: var(--danger); font-size: 2.5rem;">0</div>
+                                <div class="stat-label">Threats Found</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: MALWARE & FILE SCAN -->
+            <div id="malware" class="module-section">
+                <div class="dashboard-grid" style="grid-template-columns: 1fr;">
+                    <div class="card border-primary card-3d" id="malwareCard">
+                        <div class="card-header">
+                            <span class="scramble-text">Autonomous File Analysis</span>
+                            <span style="color: var(--primary);">ENGINE: HEURISTIC HYBRID</span>
+                        </div>
+                        <div class="input-group" style="margin-top: 15px;">
+                            <input type="text" id="urlInput" placeholder="ENTER TARGET URL / HASH FOR ANALYSIS...">
+                            <input type="file" id="fileInput" style="display: none;" onchange="if(this.files[0]) document.getElementById('urlInput').value = this.files[0].name">
+                            <button onclick="document.getElementById('fileInput').click()" style="padding: 12px 15px;" title="Upload File">📁</button>
+                            <button onclick="startScan()">Execute Scan</button>
+                        </div>
+                        <div id="scanResult" style="display:none; background: rgba(0, 0, 0, 0.5); padding: 20px; border: 1px solid var(--border); border-radius: 4px;">
+                            <h4 class="scramble-text" style="margin-bottom: 10px; color: var(--text-main); text-transform: uppercase;">Analysis Report</h4>
+                            <p id="scanText" class="scramble-text" style="font-family: var(--font-mono); font-size: 0.95rem; color: var(--text-muted);"></p>
+                            <div class="risk-meter"><div class="risk-fill" id="riskBar"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: OSINT -->
+            <div id="osint" class="module-section">
+                <div class="dashboard-grid">
+                    <div class="card border-primary card-3d">
+                        <div class="card-header"><span class="scramble-text">Target Reconnaissance</span></div>
+                        <div class="input-group">
+                            <input type="text" id="targetInput" placeholder="ENTER TARGET DOMAIN / IP">
+                        </div>
+                        <button onclick="runRecon()" style="width: 100%;">Deploy OSINT Probes</button>
+                    </div>
+                    <div class="card card-3d" style="border-color: rgba(0, 243, 255, 0.2);" id="osintCard">
+                        <div class="card-header" style="border-bottom: none; margin-bottom: 5px;"><span class="scramble-text">Attack Surface Map</span></div>
+                        <div id="osintResults" style="font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-muted); background: rgba(0, 0, 0, 0.5); padding: 20px; border: 1px solid var(--border); border-radius: 4px; flex: 1; overflow-y: auto; border-left: 3px solid var(--primary);">
+                            <span style="opacity: 0.5;">WAITING FOR TARGET ACQUISITION...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION: DARK WEB -->
+            <div id="darkweb" class="module-section">
+                <div class="dashboard-grid" style="grid-template-columns: 1fr;">
+                    <div class="card border-danger card-3d" id="darkwebCard">
+                        <div class="card-header">
+                            <span class="scramble-text">Deep / Dark Web Monitor</span>
+                            <span style="color: var(--danger); background: rgba(255,0,85,0.1); padding: 2px 8px; border-radius: 2px; border: 1px solid var(--danger);">LEVEL_4_CLEARANCE_REQUIRED</span>
+                        </div>
+                        <p style="color:var(--text-muted); font-family: var(--font-mono); font-size: 0.85rem; margin-bottom:15px; line-height:1.7;">Scrubs Tor onion nodes &amp; breach compilations for compromised identities.</p>
+                        <div class="input-group">
+                            <input type="text" id="identityInput" placeholder="TARGET EMAIL / ALIAS">
+                            <button class="btn-danger" onclick="scrapeDarkWeb()">INITIATE SCRUB</button>
+                        </div>
+                        <div class="leak-feed" id="leakFeed">
+                            <div style="color:var(--danger); margin-bottom:8px; letter-spacing:1px;">// LIVE BREACH FEED</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- Terminal Output -->
+            <div class="terminal-window">
+                <div class="terminal-header">
+                    <div class="ts-btn red"></div><div class="ts-btn yellow"></div><div class="ts-btn green"></div>
+                    <span class="terminal-title scramble-text">SENTINEL_CORE_TERMINAL_v4.0_ULTRON</span>
+                </div>
+                <div class="terminal-body" id="consoleOutput"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Final CRT Overlay layers -->
+    <div class="scanlines"></div>
+    <div class="crt-vignette"></div>
+
+    <script>
+        // --- Web Audio API Synth ---
+        const SFX = {
+            click: () => {},
+            cypher: () => {},
+            typeBoot: () => {},
+            warn: () => {},
+            error: () => {},
+            success: () => {}
+        };
+
+        const sleep = ms => new Promise(res => setTimeout(res, ms));
+        const API_BASE = window.location.origin;
+
+        // XSS Sanitizer helper
+        function sanitize(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // --- Init System ---
+        function initSystem() {
+            document.body.classList.add('sys-active');
+            document.getElementById('audioOverlay').style.display = 'none';
+            runBootSequence();
+        }
+
+        // --- Scramble Cypher Effect ---
+        const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?';
+        async function scrambleText(element, finalString, speed=30) {
+            return new Promise(resolve => {
+                let iteration = 0;
+                let soundInterval = setInterval(SFX.cypher, 50); // specific cypher sound
+                const interval = setInterval(() => {
+                    element.innerText = finalString.split("").map((char, index) => {
+                        if(index < iteration) return char;
+                        if(char === " ") return " ";
+                        return CHARS[Math.floor(Math.random() * CHARS.length)];
+                    }).join("");
+                    if(iteration >= finalString.length) {
+                        clearInterval(interval);
+                        clearInterval(soundInterval);
+                        element.innerText = finalString;
+                        resolve();
+                    }
+                    iteration += 1/2; // How fast it unscrambles
+                }, speed);
+            });
+        }
+
+        function triggerCyphers() {
+            document.querySelectorAll('.active .scramble-text').forEach(el => {
+                // To remember original text, save to dataset
+                if(!el.dataset.targetTxt) { el.dataset.targetTxt = el.innerText; }
+                scrambleText(el, el.dataset.targetTxt, 30);
+            });
+        }
+
+        // --- Terminal Logs with Scramble Option ---
+        const consoleDiv = document.getElementById('consoleOutput');
+        function getTimestamp() { const now = new Date(); return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padStart(3, '0')}`; }
+
+        async function log(message, type = 'info', instant = false) {
+            const oldCursors = document.querySelectorAll('.terminal-body .cursor'); oldCursors.forEach(c => c.remove());
+            const div = document.createElement('div'); div.className = 'log-entry';
+            let colorClass = 'log-info'; let typeTag = '[INFO]';
+            if (type === 'success') { colorClass = 'log-success'; typeTag = '[OK]'; SFX.success(); }
+            if (type === 'error') { colorClass = 'log-error'; typeTag = '[ERR]'; SFX.error(); }
+            if (type === 'warn') { colorClass = 'log-warn'; typeTag = '[WARN]'; SFX.warn(); }
+
+            const prefix = `<span class="log-timestamp">[${getTimestamp()}]</span> <span class="${colorClass}">${typeTag}</span>`;
+            consoleDiv.appendChild(div);
+            
+            if (instant) {
+                div.innerHTML = `${prefix} <span class="log-content">${message}</span><span class="cursor"></span>`;
+            } else {
+                div.innerHTML = `${prefix} <span class="log-content"></span>`;
+                const contentSpan = div.querySelector('.log-content');
+                await scrambleText(contentSpan, message, 10);
+                contentSpan.innerHTML += `<span class="cursor"></span>`;
+            }
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+
+        // --- Boot Sequence ---
+        async function typeWriterBasic(element, text, speed) {
+            element.innerHTML = "";
+            for(let i=0; i<text.length; i++){
+                element.innerHTML += text.charAt(i);
+                SFX.typeBoot(); await sleep(speed + Math.random()*speed);
+            }
+        }
+
+        async function runBootSequence() {
+            const logsContainer = document.getElementById('bootLogsContainer');
+            const bootScreen = document.getElementById('bootScreen');
+            const bootSteps = ["KERNEL v4.9.1 BOOT SEQUENCE...", "Mounting secure virtual partitions... [OK]", "Bypassing perimeter firewalls... [OK]", "Connecting threat matrix... [SYNCED]", "Launching interactive UI..."];
+            for (let step of bootSteps) {
+                const p = document.createElement('div'); p.className = 'boot-log'; logsContainer.appendChild(p);
+                await typeWriterBasic(p, step, 10); await sleep(150);
+            }
+            await sleep(300);
+            bootScreen.classList.add('hidden');
+            document.getElementById('mainApp').classList.add('visible');
+            setTimeout(() => bootScreen.style.display = 'none', 1000);
+            log("SentinelCore engine initialized.", "info", true);
+            log("Awaiting directives.", "success", true);
+            initCanvas();
+            init3DTilt();
+            triggerCyphers();
+            startLiveClock();
+            startThreatTicker();
+            startLeakFeed();
+            initCursor();
+            startSystemMeters();
+            startQuoteRotator();
+            startLiveDashboardStats();
+        }
+
+        async function startLiveDashboardStats() {
+            while (true) {
+                try {
+                    const resp = await fetch(`${API_BASE}/api/stats`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        document.getElementById('statScans').innerText = data.files_scanned.toLocaleString();
+                        document.getElementById('statBreaches').innerText = data.threats_found.toLocaleString();
+                    }
+                } catch (err) {
+                    console.error("Dashboard stats error:", err);
+                }
+                await sleep(5000); // refresh every 5s
+            }
+        }
+
+        // --- 3D Holographic Card Parallax ---
+        function init3DTilt() {
+            document.addEventListener('mousemove', (e) => {
+                requestAnimationFrame(() => {
+                    document.querySelectorAll('.active.card-3d, .active .card-3d').forEach(card => {
+                        const rect = card.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const y = e.clientY - rect.top;
+                        const centerX = rect.width / 2;
+                        const centerY = rect.height / 2;
+                        const rotateX = ((y - centerY) / centerY) * -3; // Subtle 3 deg max tilt
+                        const rotateY = ((x - centerX) / centerX) * 3;
+                        card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+                    });
+                });
+            });
+            // Reset on mouse leave entire document
+            document.addEventListener('mouseleave', () => {
+                document.querySelectorAll('.card-3d').forEach(card => card.style.transform = `perspective(1000px) rotateX(0) rotateY(0)`);
+            });
+        }
+
+        // --- Nav Tabs ---
+        function switchTab(tabId) {
+            SFX.click();
+            document.querySelectorAll('.module-section').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-text').forEach(el => { el.innerText = el.dataset.original; }); // reset non-active
+            
+            const activeNav = document.querySelector(`.nav-item[onclick*="${tabId}"]`);
+            activeNav.classList.add('active');
+            const navText = activeNav.querySelector('.nav-text');
+            scrambleText(navText, navText.dataset.original, 20); // Scramble nav name
+            
+            const mainSection = document.getElementById(tabId);
+            mainSection.classList.add('active');
+            
+            // Re-trigger Cypher text inside the newly activated tab
+            triggerCyphers();
+            log(`Module context switched -> /opt/sentinel/${tabId}`, 'info');
+        }
+
+        function removeGlitch(elementId) { document.getElementById(elementId).classList.remove('glitch-active'); }
+
+        // --- Module 1: Malware ---
+        async function startScan() {
+            SFX.click();
+            const input = document.getElementById('urlInput').value;
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!input) { log("ERR: No target specified.", "error"); return; }
+            const riskBar = document.getElementById('riskBar'); const scanText = document.getElementById('scanText'); const card = document.getElementById('malwareCard');
+            removeGlitch('malwareCard');
+            document.getElementById('scanResult').style.display = 'block';
+            riskBar.className = 'risk-fill'; riskBar.style.width = '0%';
+            
+            await log(`Engaging payload analysis for: ${sanitize(input)}`, 'warn');
+            await scrambleText(scanText, "EXTRACTING HEURISTICS...");
+            riskBar.style.width = '30%'; riskBar.className = 'risk-fill risk-low'; await sleep(800);
+            
+            await scrambleText(scanText, "CROSS-REFERENCING VIRUSTOTAL DB...");
+            riskBar.style.width = '60%'; riskBar.className = 'risk-fill risk-med'; await sleep(400);
+
+            try {
+                let resp;
+                if (file && input === file.name) {
+                    // It's a file upload
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    resp = await fetch(`${API_BASE}/api/scan/file`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else {
+                    // Determine if input is a URL or a hash
+                    const isUrl = input.startsWith('http://') || input.startsWith('https://');
+                    const endpoint = isUrl ? '/api/scan/url' : '/api/scan/hash';
+                    const body = isUrl ? { url: input } : { hash: input };
+
+                    resp = await fetch(`${API_BASE}${endpoint}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                }
+                const data = await resp.json();
+
+                if (data.error) {
+                    await log(`SCAN ERROR: ${sanitize(data.error)}`, 'error');
+                    scanText.innerHTML = `<strong style="color:var(--danger)">ERROR:</strong> ${sanitize(data.error)}`;
+                    riskBar.style.width = '0%'; riskBar.className = 'risk-fill';
+                    return;
+                }
+
+                const score = data.heuristic_score || 0;
+                const verdict = (sanitize(data.verdict) || 'unknown').toUpperCase();
+                const threatName = sanitize(data.threat_name) || 'N/A';
+                const malEngines = data.malicious_engines || 0;
+                const totalEngines = data.total_engines || 0;
+
+                if (verdict === 'MALICIOUS' || verdict === 'SUSPICIOUS') {
+                    await log(`CRITICAL THREAT DETECTED. ISOLATING PROCESS.`, 'error');
+                    card.classList.add('glitch-active');
+                    riskBar.style.width = `${Math.min(score, 100)}%`;
+                    riskBar.className = score > 70 ? 'risk-fill risk-high' : 'risk-fill risk-med';
+                } else {
+                    await log(`Scan complete. Target appears clean.`, 'success');
+                    riskBar.style.width = `${Math.min(score, 100)}%`;
+                    riskBar.className = 'risk-fill risk-low';
+                }
+
+                scanText.innerHTML = `<strong style="color:var(--danger)">DETECTED:</strong> ${threatName}<br><strong style="color:var(--warning)">SCORE:</strong> ${score}/100 (${malEngines}/${totalEngines} engines)<br><strong style="color:var(--primary)">VERDICT:</strong> ${verdict}${data.note ? '<br><span style="color:var(--text-muted);font-size:0.8rem;">' + sanitize(data.note) + '</span>' : ''}`;
+
+            } catch (err) {
+                await log(`NETWORK ERROR: Could not reach backend — ${sanitize(err.message)}`, 'error');
+                scanText.innerHTML = `<strong style="color:var(--danger)">OFFLINE:</strong> Backend unreachable. Start the server with <code>python -m backend.main</code>`;
+                riskBar.style.width = '0%'; riskBar.className = 'risk-fill';
+            }
+        }
+
+        // --- Module 2: OSINT ---
+        async function runRecon() {
+            SFX.click();
+            const target = document.getElementById('targetInput').value;
+            if (!target) { log("ERR: No target domain provided.", "error"); return; }
+            const output = document.getElementById('osintResults'); output.innerHTML = ""; 
+            await log(`Deploying automated OSINT probes on [${sanitize(target)}]...`, 'warn');
+
+            try {
+                const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProto}//${window.location.host}/api/recon/ws`;
+                const ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    ws.send(JSON.stringify({ domain: target }));
+                };
+
+                ws.onmessage = async (e) => {
+                    const event = JSON.parse(e.data);
+                    if (event.type === 'result') {
+                        // Summary result at the end
+                        const result = event.data || {};
+                        const portCount = (result.open_ports || []).length;
+                        const subCount = (result.subdomains || []).length;
+                        log(`Attack surface mapped for ${sanitize(target)}. ${portCount} open port(s), ${subCount} subdomain(s).`, 'success');
+                        ws.close();
+                        return;
+                    }
+                    
+                    const div = document.createElement('div');
+                    div.style.marginBottom = "8px"; div.style.borderBottom = "1px solid rgba(255,255,255,0.05)"; div.style.paddingBottom = "8px";
+                    output.appendChild(div);
+                    await scrambleText(div, sanitize(event.msg || ''), 15);
+                    if (event.type === 'warn') div.style.color = "var(--warning)";
+                    else if (event.type === 'error') div.style.color = "var(--danger)";
+                    else if (event.type === 'success') div.style.color = "var(--secondary)";
+                    else div.style.color = "var(--primary)";
+                };
+
+                ws.onerror = async (err) => {
+                    await log(`WEBSOCKET ERROR: Connection failed`, 'error');
+                    output.innerHTML = `<span style="color:var(--danger)">WebSocket offline.</span>`;
+                };
+
+            } catch (err) {
+                await log(`NETWORK ERROR: Backend unreachable — ${sanitize(err.message)}`, 'error');
+                output.innerHTML = `<span style="color:var(--danger)">Backend offline. Start with: python -m backend.main</span>`;
+            }
+        }
+
+        // --- Module 3: Dark Web ---
+        async function scrapeDarkWeb() {
+            SFX.click(); const target = document.getElementById('identityInput').value; const card = document.getElementById('darkwebCard');
+            if (!target) { log("ERR: Identity target missing.", "error"); return; }
+            removeGlitch('darkwebCard');
+            await log(`Activating Tor proxy relay...`, 'info'); await sleep(600);
+            await log(`Scrubbing hidden service indexes...`, 'warn'); await sleep(400);
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/darkweb/check`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ identity: target })
+                });
+                const data = await resp.json();
+
+                if (data.error) {
+                    await log(`DARKWEB ERROR: ${sanitize(data.error)}`, 'error');
+                    return;
+                }
+
+                const feed = document.getElementById('leakFeed');
+                const breaches = data.breaches || [];
+                const found = data.found || data.breach_count > 0;
+
+                if (found && breaches.length > 0) {
+                    card.classList.add('glitch-active');
+                    await log(`MATCH FOUND: ${breaches.length} breach(es) for [${sanitize(target)}]`, 'error');
+
+                    for (const b of breaches) {
+                        const entry = document.createElement('div');
+                        entry.className = 'leak-entry';
+                        const time = new Date().toLocaleTimeString('en-US', {hour12:false});
+                        const pwnCount = b.pwn_count ? ` — ${(b.pwn_count / 1e6).toFixed(1)}M records` : '';
+                        entry.innerHTML = `<span style="color:var(--danger);">[${sanitize(time)}]</span> <span style="color:var(--warning);">${sanitize(b.name) || 'Unknown'} (${sanitize(b.domain) || 'N/A'})${sanitize(pwnCount)}</span><br><span style="font-size:0.75rem;color:var(--text-muted);">${sanitize((b.data_classes || []).join(', '))}</span>`;
+                        feed.appendChild(entry);
+                        feed.scrollTop = feed.scrollHeight;
+                        await sleep(300);
+                    }
+
+                    const severity = data.severity || 'unknown';
+                    await log(`Severity: ${sanitize(severity).toUpperCase()}. Password rotation advised.`, severity === 'critical' ? 'error' : 'warn');
+                    if (data.note) await log(sanitize(data.note), 'info');
+                } else {
+                    await log(`No breaches found for [${sanitize(target)}]. Identity appears clean.`, 'success');
+                }
+
+            } catch (err) {
+                await log(`NETWORK ERROR: Backend unreachable — ${sanitize(err.message)}`, 'error');
+            }
+        }
+
+
+
+        // --- Canvas Particle Background ---
+        function initCanvas() {
+            const canvas = document.getElementById('bgCanvas'); const ctx = canvas.getContext('2d');
+            let w = canvas.width = window.innerWidth; let h = canvas.height = window.innerHeight;
+            window.addEventListener('resize', () => { w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; });
+            const particles = [];
+            for (let i = 0; i < 60; i++) { particles.push({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5, size: 1.5 }); }
+            function draw() {
+                ctx.clearRect(0, 0, w, h); ctx.fillStyle = 'rgba(0, 243, 255, 0.4)'; ctx.strokeStyle = 'rgba(0, 243, 255, 0.15)';
+                for (let i = 0; i < particles.length; i++) {
+                    const p = particles[i];
+                    p.x += p.vx; p.y += p.vy;
+                    if (p.x < 0 || p.x > w) p.vx *= -1; if (p.y < 0 || p.y > h) p.vy *= -1;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+                    for (let j = i + 1; j < particles.length; j++) {
+                        const p2 = particles[j]; const dist = Math.hypot(p.x - p2.x, p.y - p2.y);
+                        if (dist < 120) { ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p2.x, p2.y); ctx.stroke(); }
+                    }
+                }
+                requestAnimationFrame(draw);
+            }
+            draw();
+
+            // --- Matrix Rain Canvas ---
+            const mCanvas = document.getElementById('matrixCanvas');
+            const mCtx = mCanvas.getContext('2d');
+            mCanvas.width = window.innerWidth; mCanvas.height = window.innerHeight;
+            const cols = Math.floor(mCanvas.width / 20);
+            const drops = Array(cols).fill(1);
+            const matrixChars = '0123456789ABCDEFАBCDEF!@#$%^アイウエオカキクケコ';
+            function drawMatrix() {
+                mCtx.fillStyle = 'rgba(0,0,0,0.05)';
+                mCtx.fillRect(0, 0, mCanvas.width, mCanvas.height);
+                mCtx.fillStyle = '#00ff9d';
+                mCtx.font = '14px Fira Code, monospace';
+                drops.forEach((y, i) => {
+                    const ch = matrixChars[Math.floor(Math.random() * matrixChars.length)];
+                    mCtx.fillText(ch, i * 20, y * 20);
+                    if (y * 20 > mCanvas.height && Math.random() > 0.975) drops[i] = 0;
+                    drops[i]++;
+                });
+                requestAnimationFrame(drawMatrix);
+            }
+            drawMatrix();
+        }
+
+        // --- Phase 4: Live Clock ---
+        function startLiveClock() {
+            const clockEl = document.getElementById('liveClock');
+            function tick() {
+                const now = new Date();
+                const h = String(now.getHours()).padStart(2,'0');
+                const m = String(now.getMinutes()).padStart(2,'0');
+                const s = String(now.getSeconds()).padStart(2,'0');
+                clockEl.textContent = `${h}:${m}:${s} UTC`;
+            }
+            tick();
+            setInterval(tick, 1000);
+        }
+
+        // --- Phase 4: Threat Ticker ---
+        const TICKER_THREATS = [
+            'NEW THREAT: 192.168.33.4 — SQL INJECTION ATTEMPT',
+            'ALERT: Tor Exit Node 10.0.0.7 probing SSH port',
+            'DETECTED: Phishing campaign targeting .gov domains',
+            'MALWARE: C2 server contact blocked from internal host',
+            'DARKWEB: New breach batch — 14M records indexed',
+            'CRITICAL: Zero-day CVE-2024-3899 actively exploited',
+        ];
+        let tickerIdx = 0;
+        function startThreatTicker() {
+            const el = document.getElementById('threatTicker');
+            function rotate() {
+                el.style.opacity = '0';
+                setTimeout(() => {
+                    el.textContent = '⚠ ' + TICKER_THREATS[tickerIdx % TICKER_THREATS.length];
+                    el.style.transition = 'opacity 0.5s';
+                    el.style.opacity = '1';
+                    tickerIdx++;
+                }, 500);
+            }
+            rotate();
+            setInterval(rotate, 4000);
+        }
+
+        // --- Phase 4: Animated Leak Feed ---
+        const FAKE_LEAKS = [
+            'dropbox_2024.txt — email:pass dump 2.1M lines',
+            'linkedin_scrape.csv — profile + phone 800k records',
+            'adobe_breach.db — hashed passwords 152M entries',
+            'rockstar_games_src.zip — source code 8.2GB',
+            'twitter_api_dump.json — private DMs 450k users',
+        ];
+        let leakFeedIdx = 0;
+        function startLeakFeed() {
+            const feed = document.getElementById('leakFeed');
+            if (!feed) return;
+            setInterval(() => {
+                const entry = document.createElement('div');
+                entry.className = 'leak-entry';
+                const time = new Date().toLocaleTimeString('en-US', {hour12:false});
+                entry.innerHTML = `<span style="color:var(--danger);">[${time}]</span> <span style="color:var(--warning);">${FAKE_LEAKS[leakFeedIdx % FAKE_LEAKS.length]}</span>`;
+                feed.appendChild(entry);
+                feed.scrollTop = feed.scrollHeight;
+                leakFeedIdx++;
+            }, 2500);
+        }
+
+
+
+        // --- Phase 5: Neon Custom Cursor ---
+        function initCursor() {
+            const dot = document.getElementById('cursorDot');
+            document.addEventListener('mousemove', e => {
+                dot.style.left = e.clientX + 'px';
+                dot.style.top = e.clientY + 'px';
+            });
+            document.addEventListener('mousedown', () => {
+                dot.style.animation = 'none';
+                dot.style.transform = 'translate(-50%,-50%) scale(0.6)';
+                dot.style.background = 'var(--primary)';
+                dot.style.boxShadow = '0 0 15px var(--primary), 0 0 40px var(--primary-glow)';
+            });
+            document.addEventListener('mouseup', () => {
+                dot.style.animation = 'cursorPulse 1.5s infinite alternate';
+            });
+        }
+
+        // --- Phase 5: Click Ripple ---
+        document.addEventListener('click', e => {
+            const r = document.createElement('div');
+            r.className = 'ripple';
+            r.style.left = e.clientX + 'px';
+            r.style.top = e.clientY + 'px';
+            document.body.appendChild(r);
+            setTimeout(() => r.remove(), 700);
+        });
+
+        // --- Phase 5: Sidebar System Meters (live animation) ---
+        function startSystemMeters() {
+            function randomWalk(current, min, max, step) {
+                const delta = (Math.random() - 0.5) * step;
+                return Math.min(max, Math.max(min, current + delta));
+            }
+            let cpu = 67, ram = 45, net = 88;
+            function updateMeters() {
+                cpu = randomWalk(cpu, 20, 95, 8);
+                ram = randomWalk(ram, 30, 80, 4);
+                net = randomWalk(net, 10, 99, 15);
+
+                const cpuEl = document.getElementById('mCPU');
+                const ramEl = document.getElementById('mRAM');
+                const netEl = document.getElementById('mNET');
+                const cpuV  = document.getElementById('mCPUVal');
+                const ramV  = document.getElementById('mRAMVal');
+                const netV  = document.getElementById('mNETVal');
+
+                if (cpuEl) { cpuEl.style.width = cpu.toFixed(0) + '%'; cpuV.textContent = cpu.toFixed(0) + '%'; cpuEl.className = 'meter-fill' + (cpu > 80 ? ' danger' : cpu > 60 ? ' warn' : ''); }
+                if (ramEl) { ramEl.style.width = ram.toFixed(0) + '%'; ramV.textContent = ram.toFixed(0) + '%'; ramEl.className = 'meter-fill' + (ram > 75 ? ' danger' : ''); }
+                if (netEl) { netEl.style.width = net.toFixed(0) + '%'; netV.textContent = net.toFixed(0) + '%'; netEl.className = 'meter-fill' + (net > 85 ? ' danger' : net > 65 ? ' warn' : ''); }
+            }
+            setInterval(updateMeters, 1500);
+        }
+
+        // --- Phase 5: Rotating Cyber Quote Bar ---
+        const CYBER_QUOTES = [
+            '"Security is a process, not a product." — Bruce Schneier',
+            '"The only truly secure system is one that is powered off." — Gene Spafford',
+            '"Amateurs hack systems. Professionals hack people." — Bruce Schneier',
+            '"It takes 20 years to build a reputation and a few minutes to ruin it." — Kevin Mitnick',
+            '"Hackers are breaking the systems for profit. Before, it was about intellectual curiosity." — Kevin Mitnick',
+            '"The art of war teaches us to rely not on the likelihood of the enemy not coming, but on our own readiness." — Sun Tzu',
+            '"Privacy is not for the passive." — Jeffrey Rosen',
+        ];
+        let quoteIdx = 0;
+        function startQuoteRotator() {
+            const el = document.getElementById('quoteText');
+            if (!el) return;
+            function rotate() {
+                el.style.opacity = '0';
+                el.style.transition = 'opacity 0.6s';
+                setTimeout(async () => {
+                    await scrambleText(el, CYBER_QUOTES[quoteIdx % CYBER_QUOTES.length], 15);
+                    el.style.opacity = '1';
+                    quoteIdx++;
+                }, 600);
+            }
+            setInterval(rotate, 7000);
+        }
+    </script>
+</body>
+</html>
