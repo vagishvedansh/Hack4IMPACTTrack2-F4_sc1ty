@@ -34,3 +34,4 @@ reports/
 
 # Node modules (if frontend uses npm)
 node_modules/
+reports/
